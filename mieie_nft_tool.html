@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mieie メンテナンス記録NFT化ツール(プロトタイプ)</title>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<style>
+  :root{--navy:#1a2b4a;--accent:#2e7d5b;--bg:#f5f4f0;--card:#fff;--line:#ddd8ce;--warn:#b45309;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;background:var(--bg);color:#222;line-height:1.7}
+  header{background:var(--navy);color:#fff;padding:20px 24px}
+  header h1{font-size:18px;font-weight:600}
+  header p{font-size:12px;opacity:.75;margin-top:2px}
+  main{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+  .tabs{display:flex;gap:6px;margin:14px 0}
+  .tabs button{flex:1;padding:10px;border:1px solid var(--line);background:#eceae4;border-radius:8px 8px 0 0;font-size:14px;cursor:pointer}
+  .tabs button.active{background:var(--card);border-bottom:2px solid var(--accent);font-weight:600}
+  .panel{display:none;background:var(--card);border:1px solid var(--line);border-radius:0 8px 8px 8px;padding:22px}
+  .panel.show{display:block}
+  h2{font-size:15px;color:var(--navy);margin:18px 0 8px;padding-left:8px;border-left:4px solid var(--accent)}
+  h2:first-child{margin-top:0}
+  label{display:block;font-size:12px;color:#555;margin:10px 0 3px}
+  input[type=text],input[type=date],textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-family:inherit}
+  textarea{resize:vertical}
+  .btn{display:inline-block;margin-top:12px;padding:10px 22px;border:none;border-radius:6px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer}
+  .btn:disabled{background:#aaa;cursor:not-allowed}
+  .btn.secondary{background:var(--navy)}
+  .dropzone{border:2px dashed var(--line);border-radius:8px;padding:26px;text-align:center;color:#777;font-size:13px;cursor:pointer;transition:.2s}
+  .dropzone.over{border-color:var(--accent);background:#f0f7f3}
+  .hash{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all;background:#f4f4f2;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:6px}
+  .status{margin-top:12px;font-size:13px;padding:10px 12px;border-radius:6px;display:none}
+  .status.info{display:block;background:#eef4fb;color:#1d4e89}
+  .status.ok{display:block;background:#edf7ef;color:#1e6b34}
+  .status.err{display:block;background:#fbeeee;color:#a02020}
+  .note{font-size:12px;color:#777;margin-top:6px}
+  .steps{font-size:13px;background:#fbfaf7;border:1px solid var(--line);border-radius:8px;padding:14px 18px;margin-top:8px}
+  .steps li{margin:6px 0 6px 18px}
+  a{color:var(--accent)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:600px){.grid2{grid-template-columns:1fr}}
+  .badge{display:inline-block;font-size:11px;background:var(--warn);color:#fff;border-radius:4px;padding:1px 8px;vertical-align:middle;margin-left:8px}
+  .result-big{font-size:20px;font-weight:700;margin-top:14px}
+  details{margin-top:10px;font-size:13px}
+  summary{cursor:pointer;color:var(--navy);font-weight:600}
+  pre{font-size:11px;background:#f4f4f2;border:1px solid var(--line);border-radius:6px;padding:10px;overflow-x:auto;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Mieie メンテナンス記録 NFT化ツール <span class="badge">プロトタイプ / テストネット</span></h1>
+  <p>建物の報告書PDFを改ざん不可能な記録としてブロックチェーンに刻印します ― 見える家プロジェクト</p>
+</header>
+<main>
+
+<div class="tabs">
+  <button class="active" onclick="tab(0)">① はじめに(準備)</button>
+  <button onclick="tab(1)">② 記録をNFT化する</button>
+  <button onclick="tab(2)">③ 改ざんチェック(検証)</button>
+</div>
+
+<!-- ===== PANEL 0: 準備 ===== -->
+<div class="panel show" id="p0">
+  <h2>このツールの仕組み</h2>
+  <p style="font-size:13px">
+    PDFそのものは外部に送信しません。PDFから計算した<strong>SHA-256ハッシュ値(デジタル指紋)</strong>だけを
+    Polygonテストネットのブロックチェーンに刻印します。PDFが1文字でも書き換えられるとハッシュ値が変わるため、
+    「この報告書は刻印時点から改ざんされていない」ことを誰でも検証できます。
+  </p>
+  <h2>準備(初回のみ・約10分・無料)</h2>
+  <ol class="steps">
+    <li><strong>MetaMask</strong>(ウォレット)をChromeに追加 →
+      <a href="https://metamask.io/download/" target="_blank">metamask.io/download</a><br>
+      <span class="note">新規ウォレット作成時に表示される「シークレットリカバリーフレーズ」は紙に控えて保管してください。</span></li>
+    <li>テスト用通貨(POL)を無料入手 ―「蛇口(faucet)」と呼ばれるサイトでもらえます。<br>
+      <a href="https://faucet.polygon.technology/" target="_blank">faucet.polygon.technology</a>(ネットワークで「Amoy」を選択し、MetaMaskのアドレスを貼り付け)<br>
+      うまくいかない場合の予備: <a href="https://faucets.chain.link/polygon-amoy" target="_blank">faucets.chain.link/polygon-amoy</a></li>
+    <li>「② 記録をNFT化する」タブへ。Amoyネットワークの追加はこのツールが自動で行います。</li>
+  </ol>
+  <p class="note">※ テストネットのPOLは無価値のため、費用は一切かかりません。実運用時はPolygon本番チェーンに切り替えます(手数料は1件あたり数円程度)。</p>
+</div>
+
+<!-- ===== PANEL 1: ミント ===== -->
+<div class="panel" id="p1">
+  <h2>STEP 1 ― 記録ファイルを選択(PDF・ZIP・GLBなど何でも可)</h2>
+  <div class="dropzone" id="dz1" onclick="document.getElementById('file1').click()">
+    ここをクリック、またはファイルをドラッグ&ドロップ(報告書PDF、3DスキャンのGLB/ZIPなど)
+  </div>
+  <input type="file" id="file1" hidden>
+  <div id="hashBox1" style="display:none">
+    <label>SHA-256 ハッシュ値(この報告書のデジタル指紋)</label>
+    <div class="hash" id="hash1"></div>
+  </div>
+
+  <h2>STEP 2 ― 記録情報を入力</h2>
+  <div class="grid2">
+    <div><label>物件名 *</label><input type="text" id="fProperty" placeholder="例: 府中市〇〇町 S邸"></div>
+    <div><label>記録種別 *</label><input type="text" id="fType" placeholder="例: 耐震診断 / 屋根修繕 / 定期点検"></div>
+    <div><label>実施日 *</label><input type="date" id="fDate"></div>
+    <div><label>記録者</label><input type="text" id="fAuthor" value="一級建築士事務所 有限会社 佐藤靖生建築研究室"></div>
+  </div>
+  <label>備考</label>
+  <textarea id="fMemo" rows="2" placeholder="工事概要、報告書番号など"></textarea>
+  <label>3DモデルURL(任意 ― IPFS等にアップしたGLBのURL。入れるとNFTビューアで3D表示されます)</label>
+  <input type="text" id="f3dUrl" placeholder="例: ipfs://bafy... または https://...">
+
+  <h2>STEP 3 ― ウォレット接続 → 刻印</h2>
+  <button class="btn secondary" id="btnConnect" onclick="connectWallet()">MetaMaskに接続</button>
+  <span id="acct" style="font-size:12px;margin-left:10px;color:#555"></span>
+  <div id="deployRow" style="display:none">
+    <p class="note" style="margin-top:14px">初回のみ、記録台帳(スマートコントラクト)をチェーン上に設置します。</p>
+    <button class="btn" id="btnDeploy" onclick="deployContract()">台帳を設置する(初回のみ)</button>
+  </div>
+  <div id="contractRow" style="display:none">
+    <label style="margin-top:14px">記録台帳アドレス</label>
+    <div class="hash" id="contractAddr"></div>
+    <button class="btn" id="btnMint" onclick="mintRecord()">この記録をNFTとして刻印する</button>
+  </div>
+  <div class="status" id="st1"></div>
+  <div id="mintResult"></div>
+  <details><summary>メタデータのプレビュー(技術者向け)</summary><pre id="metaPreview">PDFと記録情報を入力すると表示されます</pre></details>
+</div>
+
+<!-- ===== PANEL 2: 検証 ===== -->
+<div class="panel" id="p2">
+  <h2>手元のPDFがチェーン上の記録と一致するか検証</h2>
+  <p style="font-size:13px">検証したいPDFと、刻印時に控えた「台帳アドレス」「記録番号(Token ID)」を指定してください。</p>
+  <div class="grid2">
+    <div><label>記録台帳アドレス</label><input type="text" id="vContract" placeholder="0x..."></div>
+    <div><label>記録番号(Token ID)</label><input type="text" id="vTokenId" placeholder="1"></div>
+  </div>
+  <label style="margin-top:10px">検証するPDF</label>
+  <div class="dropzone" id="dz2" onclick="document.getElementById('file2').click()">
+    ここをクリック、またはPDFをドラッグ&ドロップ
+  </div>
+  <input type="file" id="file2" hidden>
+  <div id="hashBox2" style="display:none">
+    <label>このファイルのSHA-256</label>
+    <div class="hash" id="hash2"></div>
+  </div>
+  <button class="btn" onclick="verifyRecord()">検証する</button>
+  <div class="status" id="st2"></div>
+  <div id="verifyResult"></div>
+</div>
+
+</main>
+<script>
+/* ====== コンパイル済みコントラクト(MaintenanceRecordNFT.sol / solc 0.8.26 optimizer 200) ====== */
+const CONTRACT_ABI=[{"inputs":[],"stateMutability":"nonpayable","type":"constructor"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"tokenId","type":"uint256"},{"indexed":false,"internalType":"bytes32","name":"documentHash","type":"bytes32"},{"indexed":false,"internalType":"string","name":"propertyId","type":"string"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"RecordMinted","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":true,"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"Transfer","type":"event"},{"inputs":[{"internalType":"address","name":"a","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"documentHash","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"_docHash","type":"bytes32"},{"internalType":"string","name":"_tokenURI","type":"string"},{"internalType":"string","name":"_propertyId","type":"string"}],"name":"mintRecord","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"nextTokenId","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"recordedAt","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"registrar","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes4","name":"id","type":"bytes4"}],"name":"supportsInterface","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"pure","type":"function"},{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"},{"internalType":"bytes32","name":"hash","type":"bytes32"}],"name":"verify","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"}];
+const CONTRACT_BYTECODE="0x60a0604052348015600f57600080fd5b50336080526080516109816100366000396000818161016f015261035e01526109816000f3fe608060405234801561001057600080fd5b50600436106100cf5760003560e01c80637000c1171161008c5780638b038336116100665780638b0383361461020157806395d89b4114610221578063a72467ce14610245578063c87b56dd1461026557600080fd5b80637000c117146101bc57806370a08231146101cf57806375794a3c146101f857600080fd5b806301ffc9a7146100d457806306fdde03146100fc57806318160ddd146101455780631d97ce31146101575780632b20e3971461016a5780636352211e146101a9575b600080fd5b6100e76100e2366004610598565b610278565b60405190151581526020015b60405180910390f35b6101386040518060400160405280601881526020017f4d69656965204d61696e74656e616e6365205265636f7264000000000000000081525081565b6040516100f391906105c9565b6000545b6040519081526020016100f3565b6100e7610165366004610617565b6102ca565b6101917f000000000000000000000000000000000000000000000000000000000000000081565b6040516001600160a01b0390911681526020016100f3565b6101916101b7366004610639565b61031c565b6101496101ca36600461069b565b610351565b6101496101dd36600461071a565b6001600160a01b031660009081526002602052604090205490565b61014960005481565b61014961020f366004610639565b60046020526000908152604090205481565b610138604051806040016040528060058152602001644d4945494560d81b81525081565b610149610253366004610639565b60056020526000908152604090205481565b610138610273366004610639565b6104c3565b60006380ac58cd60e01b6001600160e01b0319831614806102a95750635b5e139f60e01b6001600160e01b03198316145b806102c457506301ffc9a760e01b6001600160e01b03198316145b92915050565b6000828152600160205260408120546001600160a01b03166103075760405162461bcd60e51b81526004016102fe90610743565b60405180910390fd5b50600091825260046020526040909120541490565b6000818152600160205260408120546001600160a01b0316806102c45760405162461bcd60e51b81526004016102fe90610743565b6000336001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016146103bc5760405162461bcd60e51b815260206004820152600e60248201526d726567697374726172206f6e6c7960901b60448201526064016102fe565b600080600081546103cc90610780565b9182905550600081815260016020818152604080842080546001600160a01b0319163390811790915584526002909152822080549394509092909190610413908490610799565b9091555050600081815260036020526040902061043186888361084b565b5060008181526004602090815260408083208a9055600590915280822042905551829133917fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef908290a4807f418e5812566dc98b8cac9d3c2ae037bce18efa8f75411be8cc202fe5df133029888686426040516104b1949392919061090b565b60405180910390a29695505050505050565b6000818152600160205260409020546060906001600160a01b03166104fa5760405162461bcd60e51b81526004016102fe90610743565b60008281526003602052604090208054610513906107c2565b80601f016020809104026020016040519081016040528092919081815260200182805461053f906107c2565b801561058c5780601f106105615761010080835404028352916020019161058c565b820191906000526020600020905b81548152906001019060200180831161056f57829003601f168201915b50505050509050919050565b6000602082840312156105aa57600080fd5b81356001600160e01b0319811681146105c257600080fd5b9392505050565b602081526000825180602084015260005b818110156105f757602081860181015160408684010152016105da565b506000604082850101526040601f19601f83011684010191505092915050565b6000806040838503121561062a57600080fd5b50508035926020909101359150565b60006020828403121561064b57600080fd5b5035919050565b60008083601f84011261066457600080fd5b50813567ffffffffffffffff81111561067c57600080fd5b60208301915083602082850101111561069457600080fd5b9250929050565b6000806000806000606086880312156106b357600080fd5b85359450602086013567ffffffffffffffff8111156106d157600080fd5b6106dd88828901610652565b909550935050604086013567ffffffffffffffff8111156106fd57600080fd5b61070988828901610652565b969995985093965092949392505050565b60006020828403121561072c57600080fd5b81356001600160a01b03811681146105c257600080fd5b6020808252600d908201526c37379039bab1b4103a37b5b2b760991b604082015260600190565b634e487b7160e01b600052601160045260246000fd5b6000600182016107925761079261076a565b5060010190565b808201808211156102c4576102c461076a565b634e487b7160e01b600052604160045260246000fd5b600181811c908216806107d657607f821691505b6020821081036107f657634e487b7160e01b600052602260045260246000fd5b50919050565b601f82111561084657806000526020600020601f840160051c810160208510156108235750805b601f840160051c820191505b81811015610843576000815560010161082f565b50505b505050565b67ffffffffffffffff831115610863576108636107ac565b6108778361087183546107c2565b836107fc565b6000601f8411600181146108ab57600085156108935750838201355b600019600387901b1c1916600186901b178355610843565b600083815260209020601f19861690835b828110156108dc57868501358255602094850194600190920191016108bc565b50868210156108f95760001960f88860031b161c19848701351681555b505060018560011b0183555050505050565b848152606060208201528260608201528284608083013760006080848301015260006080601f19601f86011683010190508260408301529594505050505056fea264697066735822122077a58c121998b3ba3128b96807ede9a54caf4645d094a559d12ba90454f15fce64736f6c634300081a0033";
+
+const AMOY = {
+  chainId: '0x13882',
+  chainName: 'Polygon Amoy Testnet',
+  nativeCurrency: {name:'POL', symbol:'POL', decimals:18},
+  rpcUrls: ['https://polygon-amoy-bor-rpc.publicnode.com','https://polygon-amoy.drpc.org','https://rpc-amoy.polygon.technology'],
+  blockExplorerUrls: ['https://amoy.polygonscan.com']
+};
+const EXPLORER = 'https://amoy.polygonscan.com';
+
+let provider, signer, pdfHash1=null, pdfName1='', pdfHash2=null;
+
+function tab(i){
+  document.querySelectorAll('.tabs button').forEach((b,j)=>b.classList.toggle('active',i===j));
+  document.querySelectorAll('.panel').forEach((p,j)=>p.classList.toggle('show',i===j));
+}
+function setStatus(id,cls,msg){const el=document.getElementById(id);el.className='status '+cls;el.innerHTML=msg;}
+
+/* ---- PDF hashing ---- */
+async function sha256Hex(file){
+  const buf = await file.arrayBuffer();
+  const h = await crypto.subtle.digest('SHA-256', buf);
+  return '0x'+[...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function wireDrop(dzId, fileId, cb){
+  const dz=document.getElementById(dzId), fi=document.getElementById(fileId);
+  ['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('over');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('over');}));
+  dz.addEventListener('drop',e=>{if(e.dataTransfer.files[0])cb(e.dataTransfer.files[0]);});
+  fi.addEventListener('change',e=>{if(e.target.files[0])cb(e.target.files[0]);});
+}
+wireDrop('dz1','file1', async f=>{
+  pdfHash1 = await sha256Hex(f); pdfName1 = f.name;
+  document.getElementById('dz1').textContent = '選択済み: '+f.name+'('+(f.size/1024/1024).toFixed(2)+' MB)';
+  document.getElementById('hashBox1').style.display='block';
+  document.getElementById('hash1').textContent = pdfHash1;
+  updatePreview();
+});
+wireDrop('dz2','file2', async f=>{
+  pdfHash2 = await sha256Hex(f);
+  document.getElementById('dz2').textContent = '選択済み: '+f.name;
+  document.getElementById('hashBox2').style.display='block';
+  document.getElementById('hash2').textContent = pdfHash2;
+});
+['fProperty','fType','fDate','fAuthor','fMemo','f3dUrl'].forEach(id=>
+  document.getElementById(id).addEventListener('input',updatePreview));
+
+/* ---- metadata ---- */
+function b64utf8(s){return btoa(String.fromCharCode(...new TextEncoder().encode(s)));}
+function buildMetadata(){
+  const p=v=>document.getElementById(v).value.trim();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="360"><rect width="500" height="360" fill="#1a2b4a"/><rect x="14" y="14" width="472" height="332" fill="none" stroke="#c9a35a" stroke-width="2"/><text x="250" y="70" fill="#c9a35a" font-size="20" text-anchor="middle" font-family="serif">MAINTENANCE RECORD</text><text x="250" y="105" fill="#ffffff" font-size="14" text-anchor="middle">見える家プロジェクト ― 建物履歴証明</text><text x="250" y="170" fill="#ffffff" font-size="22" text-anchor="middle" font-weight="bold">${(p('fProperty')||'物件名').replace(/[<>&]/g,'')}</text><text x="250" y="210" fill="#a8b8d0" font-size="16" text-anchor="middle">${(p('fType')||'').replace(/[<>&]/g,'')} / ${p('fDate')||''}</text><text x="250" y="300" fill="#7f8fa8" font-size="11" text-anchor="middle">SHA-256 sealed on blockchain</text><text x="250" y="322" fill="#7f8fa8" font-size="10" text-anchor="middle">${(p('fAuthor')||'').replace(/[<>&]/g,'')}</text></svg>`;
+  const meta = {
+    name: `メンテナンス記録: ${p('fProperty')} (${p('fDate')})`,
+    description: `${p('fType')} の記録。報告書PDF(${pdfName1})のSHA-256ハッシュを刻印し、改ざん不可能な建物履歴として保存。${p('fMemo')?'備考: '+p('fMemo'):''} ― 見える家プロジェクト`,
+    image: 'data:image/svg+xml;base64,'+b64utf8(svg),
+    attributes: [
+      {trait_type:'物件', value:p('fProperty')},
+      {trait_type:'記録種別', value:p('fType')},
+      {trait_type:'実施日', value:p('fDate')},
+      {trait_type:'記録者', value:p('fAuthor')},
+      {trait_type:'記録ファイルSHA-256', value:pdfHash1||''}
+    ]
+  };
+  const url3d = p('f3dUrl');
+  if(url3d) meta.animation_url = url3d; // 対応ビューア(OpenSea等)で3D表示される
+  return meta;
+}
+/* 刻印用の軽量メタデータ(証明書SVGを含めない。ガス代を大幅に削減) */
+function buildMetadataCompact(){
+  const p=v=>document.getElementById(v).value.trim();
+  const meta = {
+    name: `${p('fProperty')} / ${p('fType')} (${p('fDate')})`,
+    description: `${p('fType')}の記録。対象ファイル ${pdfName1} のSHA-256を刻印。記録者: ${p('fAuthor')}${p('fMemo')?' / 備考: '+p('fMemo'):''}`,
+    attributes: [
+      {trait_type:'物件', value:p('fProperty')},
+      {trait_type:'記録種別', value:p('fType')},
+      {trait_type:'実施日', value:p('fDate')},
+      {trait_type:'記録者', value:p('fAuthor')},
+      {trait_type:'記録ファイルSHA-256', value:pdfHash1||''}
+    ]
+  };
+  const url3d = p('f3dUrl');
+  if(url3d) meta.animation_url = url3d;
+  return meta;
+}
+function updatePreview(){
+  try{document.getElementById('metaPreview').textContent = JSON.stringify(buildMetadata(),null,2);}catch(e){}
+}
+
+/* ---- wallet ---- */
+async function connectWallet(){
+  if(!window.ethereum){setStatus('st1','err','MetaMaskが見つかりません。「① はじめに」の手順でインストールしてください。');return;}
+  try{
+    await window.ethereum.request({method:'eth_requestAccounts'});
+    try{
+      await window.ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:AMOY.chainId}]});
+    }catch(e){
+      if(e.code===4902){await window.ethereum.request({method:'wallet_addEthereumChain',params:[AMOY]});}
+      else throw e;
+    }
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    const addr = await signer.getAddress();
+    const bal = await provider.getBalance(addr);
+    document.getElementById('acct').textContent = addr.slice(0,8)+'…'+addr.slice(-6)+'(残高 '+(+ethers.formatEther(bal)).toFixed(3)+' POL)';
+    if(bal===0n){setStatus('st1','err','テストPOLの残高が0です。「① はじめに」の蛇口(faucet)で無料入手してください。');}
+    else setStatus('st1','ok','接続完了(Polygon Amoy テストネット)');
+    const saved = localStorage.getItem('mieie_contract');
+    if(saved){
+      document.getElementById('contractAddr').textContent = saved;
+      document.getElementById('contractRow').style.display='block';
+      document.getElementById('vContract').value = saved;
+    }else{
+      document.getElementById('deployRow').style.display='block';
+    }
+  }catch(e){setStatus('st1','err','接続エラー: '+(e.message||e));}
+}
+
+async function deployContract(){
+  if(!signer){setStatus('st1','err','先にMetaMaskへ接続してください。');return;}
+  try{
+    setStatus('st1','info','台帳を設置中… MetaMaskで承認してください。');
+    document.getElementById('btnDeploy').disabled=true;
+    const factory = new ethers.ContractFactory(CONTRACT_ABI, CONTRACT_BYTECODE, signer);
+    const c = await factory.deploy();
+    await c.waitForDeployment();
+    const addr = await c.getAddress();
+    localStorage.setItem('mieie_contract', addr);
+    document.getElementById('contractAddr').textContent = addr;
+    document.getElementById('deployRow').style.display='none';
+    document.getElementById('contractRow').style.display='block';
+    document.getElementById('vContract').value = addr;
+    setStatus('st1','ok','台帳を設置しました: <a target="_blank" href="'+EXPLORER+'/address/'+addr+'">エクスプローラーで確認</a><br>このアドレスは大切に控えてください。');
+  }catch(e){
+    document.getElementById('btnDeploy').disabled=false;
+    setStatus('st1','err','設置エラー: '+(e.shortMessage||e.message||e));
+  }
+}
+
+async function mintRecord(){
+  if(!signer){setStatus('st1','err','先にMetaMaskへ接続してください。');return;}
+  if(!pdfHash1){setStatus('st1','err','STEP 1でPDFを選択してください。');return;}
+  const p=v=>document.getElementById(v).value.trim();
+  if(!p('fProperty')||!p('fType')||!p('fDate')){setStatus('st1','err','STEP 2の必須項目(*)を入力してください。');return;}
+  try{
+    setStatus('st1','info','刻印中… MetaMaskで承認してください。');
+    document.getElementById('btnMint').disabled=true;
+    const addr = document.getElementById('contractAddr').textContent;
+    const c = new ethers.Contract(addr, CONTRACT_ABI, signer);
+    const uri = 'data:application/json;base64,'+b64utf8(JSON.stringify(buildMetadataCompact()));
+    const bal = await provider.getBalance(await signer.getAddress());
+    setStatus('st1','info','刻印中… 現在の残高 '+(+ethers.formatEther(bal)).toFixed(4)+' POL。MetaMaskで承認してください。');
+    const tx = await c.mintRecord(pdfHash1, uri, p('fProperty'));
+    setStatus('st1','info','トランザクション送信済み。承認待ち…');
+    const rc = await tx.wait();
+    const tokenId = await c.totalSupply();
+    setStatus('st1','ok','刻印完了!');
+    document.getElementById('mintResult').innerHTML =
+      '<div class="steps" style="margin-top:14px"><strong>記録証明(お客様に提示できる情報)</strong>'+
+      '<li>記録番号(Token ID): <strong>'+tokenId+'</strong></li>'+
+      '<li>台帳アドレス: '+addr+'</li>'+
+      '<li>報告書ハッシュ: <span style="font-family:monospace;font-size:11px">'+pdfHash1+'</span></li>'+
+      '<li>トランザクション: <a target="_blank" href="'+EXPLORER+'/tx/'+rc.hash+'">'+rc.hash.slice(0,20)+'…</a></li>'+
+      '<li>NFT表示: <a target="_blank" href="'+EXPLORER+'/nft/'+addr+'/'+tokenId+'">エクスプローラーで見る</a></li></div>';
+  }catch(e){
+    setStatus('st1','err','刻印エラー: '+(e.shortMessage||e.message||e));
+  }finally{
+    document.getElementById('btnMint').disabled=false;
+  }
+}
+
+/* ---- verify ---- */
+async function verifyRecord(){
+  const addr = document.getElementById('vContract').value.trim();
+  const tid = document.getElementById('vTokenId').value.trim();
+  if(!addr||!tid||!pdfHash2){setStatus('st2','err','台帳アドレス・記録番号・PDFの3点を指定してください。');return;}
+  try{
+    setStatus('st2','info','チェーン上の記録と照合中…');
+    let prov;
+    if(window.ethereum){prov = new ethers.BrowserProvider(window.ethereum);}
+    else{prov = new ethers.JsonRpcProvider(AMOY.rpcUrls[0]);}
+    const c = new ethers.Contract(addr, CONTRACT_ABI, prov);
+    const ok = await c.verify(tid, pdfHash2);
+    const ts = await c.recordedAt(tid);
+    const d = new Date(Number(ts)*1000).toLocaleString('ja-JP');
+    if(ok){
+      document.getElementById('verifyResult').innerHTML =
+        '<div class="result-big" style="color:#1e6b34">✔ 一致 ― 改ざんなし</div>'+
+        '<p style="font-size:13px">このPDFは <strong>'+d+'</strong> にブロックチェーンへ刻印された記録と完全に一致します。刻印以降、1ビットも変更されていません。</p>';
+      setStatus('st2','ok','検証完了');
+    }else{
+      document.getElementById('verifyResult').innerHTML =
+        '<div class="result-big" style="color:#a02020">✘ 不一致 ― 内容が異なります</div>'+
+        '<p style="font-size:13px">このPDFはチェーン上の記録('+d+'刻印)とハッシュが一致しません。別のファイルか、内容が変更されています。</p>';
+      setStatus('st2','ok','検証完了');
+    }
+  }catch(e){setStatus('st2','err','検証エラー: '+(e.shortMessage||e.message||e));}
+}
+</script>
+</body>
+</html>
